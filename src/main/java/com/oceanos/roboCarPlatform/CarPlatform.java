@@ -23,6 +23,41 @@ public class CarPlatform {
     static final String compassPort = "/dev/ttyUSB1";
     static final String cameraPort = "/dev/video0";
 
+    static Map<Long, List<String>> messages = new HashMap<>();
+
+    static void addToList(String msg, long time){
+        List<String> messageList = messages.get(time);
+        if (messageList == null) {
+            messageList = new ArrayList<>();
+            messages.put(time, messageList);
+        }
+        messageList.add(msg);
+        if (messageList.size()==3){
+            System.out.println("-----START MESSAGE------"+time);
+            for (String str :
+                    messageList) {
+                System.out.println(str);
+            }
+            System.out.println("-----END MESSAGE------"+time);
+            messages.remove(time);
+            //System.out.println("Messages size: "+messages.size() );
+        }
+    }
+
+    static void processMessage(String msg){
+
+        msg = msg.replace("$","").trim();
+        //System.out.println("process message "+msg);
+        String[] msgs = msg.split(";");
+        int length = msgs.length;
+        Long timeStamp = Long.parseLong(msgs[length-1]);
+        for (int i = 0; i < length - 1; i++) {
+            addToList(msgs[i], timeStamp);
+        }
+
+
+    }
+
 
     public static void main(String[] args) {
         long startTime = new Date().getTime();
@@ -92,148 +127,93 @@ public class CarPlatform {
     }
 
     static void startThrusterServer() throws SocketException, UnknownHostException {
+        long startTime = new Date().getTime();
 
-        new Thread(new Runnable() {
-            long startTime;
-            Map<Long, List<String>> messages = new HashMap<>();
+        SimpleSerialConnection thrusterConnection = new SimpleSerialConnection(arduinoPort, 115200);
 
-            void processMessage(String msg){
+        UDPServer thrusterServer = null;
+        try {
+            thrusterServer = new UDPServer(4448);
+        } catch (SocketException e) {
+            e.printStackTrace();
+        } catch (UnknownHostException e) {
+            e.printStackTrace();
+        }
 
-                msg = msg.replace("$","").replace(";","").replace(" ","").trim();
-                //System.out.println("process message "+msg);
-                String[] dataArray = msg.split(",");
-                int length = dataArray.length;
-                Long timeStamp = Long.parseLong(dataArray[length-1]);
-                //List<String> messageList = messages.computeIfAbsent(timeStamp, k -> new ArrayList<>());
-                List<String> messageList = messages.get(timeStamp);
-                if (messageList == null) {
-                    messageList = new ArrayList<>();
-                    messages.put(timeStamp, messageList);
-                }
-                StringBuilder builder = new StringBuilder();
-                for (int i = 0; i < length - 1; i++) {
-                    builder.append(dataArray[i]);
-                    builder.append(" ");
-                }
-                messageList.add(builder.toString());
-                if (messageList.size()==4){
-                    System.out.println("-----START MESSAGE------"+timeStamp);
-                    for (String str :
-                            messageList) {
-                        System.out.println(str);
-                    }
-                    System.out.println("-----END MESSAGE------"+timeStamp);
-                    messages.remove(timeStamp);
-                    System.out.println("Messages size: "+messages.size() );
-                }
+        thrusterConnection.setOnRecived(b -> {
+            //System.out.println("from arduino: " + new String(b).replace("\n",""));
+            String msg = new String(b).replace("\n","");
+            if (msg.startsWith("$")) {
+                System.out.println("from arduino: "+msg);
+                //processMessage(msg);
+            } else {
+                System.out.println("from arduino: "+msg);
+            }
+        });
 
+        thrusterServer.setOnRecived(d -> {
+
+            long currTime = new Date().getTime() - startTime;
+
+            String data = new String(d);
+            String[] dataArr = data.split(",");
+
+            double lx = Double.parseDouble(dataArr[0]);
+            double ty = Double.parseDouble(dataArr[1]);
+
+            if (ty != 0.){
+                //lx = znak(lx)*convert(lx);
+                ty = znak(ty) * convert(ty);
             }
 
-            @Override
-            public void run() {
-                startTime = new Date().getTime();
+            System.out.println("lx " + lx + " ty " + ty+","+currTime);
+            //processMessage("lx " + lx + ", ty " + ty+","+currTime);
 
+            int left = 0;
+            int right = 0;
+            int dir = 0;
+            int speed = (int) Math.abs((ty * 100));
 
-                //SimpleRPiSerialConnection thrusterConnection = new SimpleRPiSerialConnection(arduinoPort, 9600);
-                SimpleSerialConnection thrusterConnection = new SimpleSerialConnection(arduinoPort, 9600);
-
-                UDPServer thrusterServer = null;
-                try {
-                    thrusterServer = new UDPServer(4448);
-                } catch (SocketException e) {
-                    e.printStackTrace();
-                } catch (UnknownHostException e) {
-                    e.printStackTrace();
-                }
-
-                thrusterConnection.setOnRecived(b -> {
-                    //System.out.println("from arduino: " + new String(b));
-                    String msg = new String(b);
-                    if (msg.startsWith("$")) {
-                        //System.out.println("from arduino: "+msg);
-                        processMessage(msg);
-                    } else {
-                        System.out.println("from arduino: "+msg);
-                    }
-                });
-
-                thrusterServer.setOnRecived(d -> {
-
-                    long currTime = new Date().getTime() - startTime;
-
-                    String data = new String(d);
-                    String[] dataArr = data.split(",");
-
-                    double lx = Double.parseDouble(dataArr[0]);
-                    double ty = Double.parseDouble(dataArr[1]);
-
-                    if (ty != 0.){
-                        //lx = znak(lx)*convert(lx);
-                        ty = znak(ty) * convert(ty);
-                    }
-
-                    //System.out.println("lx " + lx + " ty " + ty);
-                    processMessage("lx " + lx + ", ty " + ty+","+currTime);
-
-                    int left = 0;
-                    int right = 0;
-                    int dir = 0;
-                    int speed = (int) Math.abs((ty * 100));
-
-                    if (ty > 0) {
-                        dir = 1;
-                    }
-
-                    if (lx < 0) {
-                        left = (int) (speed * (1 - Math.abs(lx)));
-                        right = Math.abs(speed);
-                    }
-                    if (lx > 0) {
-                        left = Math.abs(speed);
-                        right = (int) (speed * (1 - Math.abs(lx)));
-                    }
-                    if (lx == 0) {
-                        left = Math.abs(speed);
-                        right = Math.abs(speed);
-                    }
-
-                    String msg = "0,0,0," + (new Date().getTime() - startTime) + ";";
-                    if (speed > 0) {
-                        msg = left + "," + right + "," + dir + "," + currTime + ";";
-                    }
-
-               /* double l = 0;
-                double t = 0;
-                double r = 0;
-                double b = 0;
-                if (lx<0) {
-                    r = Math.abs(lx);
-                } else {
-                    l = lx;
-                }
-                if (ty<0){
-                    b = Math.abs(ty);
-                } else {
-                    t = Math.abs(ty);
-                }
-                String msg = Math.abs(l)+","+Math.abs(t)+","+Math.abs(b)+","+Math.abs(r)+","+(new Date().getTime()-startTime)+";";*/
-
-                    //System.out.println("To arduino: " + msg);
-                    processMessage(msg);
-                    try {
-                        thrusterConnection.sendData(msg.getBytes());
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-
-                });
-                thrusterConnection.start();
-                thrusterServer.start();
-                while (true) {
-
-                }
+            if (ty > 0) {
+                dir = 1;
             }
+
+            if (lx < 0) {
+                left = (int) (speed * (1 - Math.abs(lx)));
+                right = Math.abs(speed);
+            }
+            if (lx > 0) {
+                left = Math.abs(speed);
+                right = (int) (speed * (1 - Math.abs(lx)));
+            }
+            if (lx == 0) {
+                left = Math.abs(speed);
+                right = Math.abs(speed);
+            }
+
+            String msg = "0,0,0," + (new Date().getTime() - startTime) + ";";
+            if (speed > 0) {
+                msg = left + "," + right + "," + dir + "," + currTime + ";";
+            }
+
+
+            System.out.println("To arduino: " + msg);
+            //addToList(msg, currTime);
+            try {
+                msg += '\n';
+                thrusterConnection.sendData(msg.getBytes());
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+
+        });
+
+        UDPServer finalThrusterServer = thrusterServer;
+        new Thread(()->{
+            finalThrusterServer.start();
         }).start();
+
+        new Thread(() -> thrusterConnection.start()).start();
     }
 
     static double convert(double x){

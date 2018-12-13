@@ -7,12 +7,16 @@ import com.oceanos.ros.core.connections.UDPServer;
 import com.oceanos.ros.core.devices.RionCompass;
 import com.oceanos.ros.core.devices.SimpleWebCamera;
 import com.oceanos.ros.core.devices.rionCompass.CompassData;
+import com.oceanos.ros.core.devices.rionCompass.Rion3DCompassCommand;
+import com.oceanos.ros.messages.MessageProcessor;
+import com.oceanos.ros.messages.compass.CompassMessages;
 import org.apache.http.MethodNotSupportedException;
 
 import java.io.IOException;
 import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 /**
  * @autor slonikmak on 26.11.2018.
@@ -23,161 +27,156 @@ public class CarPlatform {
     static final String compassPort = "/dev/ttyUSB1";
     static final String cameraPort = "/dev/video0";
 
+    static SimpleSerialConnection thrusterSerialConnection;
+
+    static long startTime;
+    static Car car;
+    static MessageProcessor messageProcessor;
+
     static Map<Long, List<String>> messages = new HashMap<>();
 
-    static void addToList(String msg, long time){
+    static void addToList(String msg, long time) {
         List<String> messageList = messages.get(time);
         if (messageList == null) {
             messageList = new ArrayList<>();
             messages.put(time, messageList);
         }
         messageList.add(msg);
-        if (messageList.size()==3){
-            System.out.println("-----START MESSAGE------"+time);
+        if (messageList.size() == 3) {
+            System.out.println("-----START MESSAGE------" + time);
             for (String str :
                     messageList) {
                 System.out.println(str);
             }
-            System.out.println("-----END MESSAGE------"+time);
+            System.out.println("-----END MESSAGE------" + time);
             messages.remove(time);
             //System.out.println("Messages size: "+messages.size() );
         }
     }
 
-    static void processMessage(String msg){
+    static void processMessage(String msg) {
 
-        msg = msg.replace("$","").trim();
+        msg = msg.replace("$", "").trim();
         //System.out.println("process message "+msg);
         String[] msgs = msg.split(";");
         int length = msgs.length;
-        Long timeStamp = Long.parseLong(msgs[length-1]);
+        Long timeStamp = Long.parseLong(msgs[length - 1]);
         for (int i = 0; i < length - 1; i++) {
             addToList(msgs[i], timeStamp);
         }
-
-
     }
 
-
     public static void main(String[] args) {
-        long startTime = new Date().getTime();
-
+        car = new Car();
+        messageProcessor = new MessageProcessor();
         try {
             startCameraServer();
-            //startCompassServer();
+            startCompassServer();
             startThrusterServer();
-        } catch (SocketException e) {
-            e.printStackTrace();
-        } catch (UnknownHostException e) {
+        } catch (SocketException | UnknownHostException e) {
             e.printStackTrace();
         }
     }
-
 
     static void startCameraServer() throws SocketException, UnknownHostException {
         SimpleWebCamera webCamera = new SimpleWebCamera(cameraPort);
         webCamera.setWebcamDriver(new V4l4jDriver());
         UDPServer cameraUdpServer = new UDPServer(4446);
-
-        new Thread(()->{
+        new Thread(() -> {
             cameraUdpServer.start();
             webCamera.start();
-
-            while (true){
-                /*String base64 = webCamera.getBase64String();
-
-                Map<String, Object> message = new HashMap<String, Object>();
-                message.put("type", "image");
-                message.put("webcam", "default");
-                message.put("image", base64);
-*/
+            while (true) {
                 cameraUdpServer.sendData(webCamera.getData());
-
-                   /* try {
-                            simpleWebSocketServer.sendString(MAPPER.writeValueAsString(message));
-                    } catch (JsonProcessingException e) {
-                            //LOG.error(e.getMessage(), e);
-                            e.printStackTrace();
-                    }*/
             }
         }).start();
-
     }
 
     static void startCompassServer() throws SocketException, UnknownHostException {
+        SimpleSerialConnection connection = new SimpleSerialConnection(compassPort, 115200);
         UDPServer compassUdpServer = new UDPServer(4447);
-
-        new Thread(()->{
-            SimpleRPiSerialConnection connection = new SimpleRPiSerialConnection(compassPort, 115200);
-            RionCompass compass = new RionCompass(connection);
-            compassUdpServer.start();
-            try {
-                compass.setOnRecive(data -> {
-                    CompassData compassData = (CompassData)data;
-                    //System.out.println(compassData.getHeading()+" "+compassData.getPitch()+" "+compassData.getRoll());
-                    compassUdpServer.sendData(String.valueOf(compassData.getHeading()).getBytes());
-                });
-            } catch (MethodNotSupportedException e) {
-                e.printStackTrace();
-            }
-            compass.start();
-            while (true){}
-
-        }).start();
-    }
-
-    static void startThrusterServer() throws SocketException, UnknownHostException {
-        long startTime = new Date().getTime();
-
-        SimpleSerialConnection thrusterConnection = new SimpleSerialConnection(arduinoPort, 115200);
-
-        UDPServer thrusterServer = null;
+        RionCompass compass = new RionCompass(connection);
         try {
-            thrusterServer = new UDPServer(4448);
-        } catch (SocketException e) {
-            e.printStackTrace();
-        } catch (UnknownHostException e) {
+            compass.setOnRecive(data -> {
+                CompassData compassData = (CompassData) data;
+                //System.out.println("from compass"+compassData.getHeading()+" "+compassData.getPitch()+" "+compassData.getRoll());
+                compassUdpServer.sendData(String.valueOf(compassData.getHeading()).getBytes());
+                car.setHeading(compassData.getHeading());
+            });
+        } catch (MethodNotSupportedException e) {
             e.printStackTrace();
         }
 
-        thrusterConnection.setOnRecived(b -> {
-            //System.out.println("from arduino: " + new String(b).replace("\n",""));
-            String msg = new String(b).replace("\n","");
-            if (msg.startsWith("$")) {
-                System.out.println("from arduino: "+msg);
-                //processMessage(msg);
-            } else {
-                System.out.println("from arduino: "+msg);
+        messageProcessor.addConsumer(CompassMessages.START_CALIBRATION.getName(), (s)->{
+            new Thread(()->{
+                compass.startCalibration();
+                try {
+                    car.startCompassCalibration();
+                    Thread.sleep(5000);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                compass.saveCalibration();
+            }).start();
+        });
+
+        messageProcessor.addConsumer(CompassMessages.START_HEADING_STREAM.getName(),(s)->{
+            compass.startStreamHeading();
+        });
+
+        compass.start();
+        new Thread(compassUdpServer::start).start();
+
+
+    }
+
+    static void startThrusterServer() throws SocketException, UnknownHostException {
+        startTime = new Date().getTime();
+
+        thrusterSerialConnection = new SimpleSerialConnection(arduinoPort, 115200);
+
+        car.setConsumer(c->{
+            Long currTime = new Date().getTime() - startTime;
+            String msg1 = "0,0,0," + currTime + ";";
+            if (c.getLeft() > 0 || c.getRight()>0) {
+                msg1 = c.getLeft() + "," + c.getRight() + "," + c.getDirection() + "," + currTime + ";";
+            }
+            System.out.println("To arduino: " + msg1);
+            try {
+                msg1 += '\n';
+                thrusterSerialConnection.sendData(msg1.getBytes());
+            } catch (IOException e) {
+                e.printStackTrace();
             }
         });
 
-        thrusterServer.setOnRecived(d -> {
+        messageProcessor.addConsumer("stop", msg->{
+            car.stop();
+        });
 
+        messageProcessor.addConsumer("goToHeading", msg ->{
+            //double targetHeading = Double.parseDouble(msg);
+            String[] values = msg.split(",");
+            car.goToHeading(Double.parseDouble(values[0]), Float.parseFloat(values[1]), Float.parseFloat(values[2]), Float.parseFloat(values[3]));
+        });
+
+        messageProcessor.addConsumer("thruster", msg->{
             long currTime = new Date().getTime() - startTime;
-
-            String data = new String(d);
-            String[] dataArr = data.split(",");
-
+            String[] dataArr = msg.split(",");
             double lx = Double.parseDouble(dataArr[0]);
             double ty = Double.parseDouble(dataArr[1]);
-
-            if (ty != 0.){
+            if (ty != 0.) {
                 //lx = znak(lx)*convert(lx);
                 ty = znak(ty) * convert(ty);
             }
-
-            System.out.println("lx " + lx + " ty " + ty+","+currTime);
+            System.out.println("lx " + lx + " ty " + ty + "," + currTime);
             //processMessage("lx " + lx + ", ty " + ty+","+currTime);
-
             int left = 0;
             int right = 0;
             int dir = 0;
             int speed = (int) Math.abs((ty * 100));
-
             if (ty > 0) {
                 dir = 1;
             }
-
             if (lx < 0) {
                 left = (int) (speed * (1 - Math.abs(lx)));
                 right = Math.abs(speed);
@@ -191,36 +190,44 @@ public class CarPlatform {
                 right = Math.abs(speed);
             }
 
-            String msg = "0,0,0," + (new Date().getTime() - startTime) + ";";
-            if (speed > 0) {
-                msg = left + "," + right + "," + dir + "," + currTime + ";";
-            }
+            car.setThruster(left, right, dir);
+            /**/
+        });
 
+        UDPServer thrusterServer = null;
+        try {
+            thrusterServer = new UDPServer(4448);
+        } catch (SocketException e) {
+            e.printStackTrace();
+        } catch (UnknownHostException e) {
+            e.printStackTrace();
+        }
 
-            System.out.println("To arduino: " + msg);
-            //addToList(msg, currTime);
-            try {
-                msg += '\n';
-                thrusterConnection.sendData(msg.getBytes());
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+        thrusterSerialConnection.setOnRecived(b -> {
+            String msg = new String(b).replace("\n", "");
+            System.out.println("from arduino: " + msg);
 
         });
 
+        thrusterServer.setOnRecived(d -> {
+            String data = new String(d);
+            messageProcessor.processMessage(data);
+        });
+
         UDPServer finalThrusterServer = thrusterServer;
-        new Thread(()->{
+        new Thread(() -> {
             finalThrusterServer.start();
         }).start();
 
-        new Thread(() -> thrusterConnection.start()).start();
+        new Thread(() -> thrusterSerialConnection.start()).start();
     }
 
-    static double convert(double x){
-        return 0.8*x*x + 0.1*x + 0.1;
+    static double convert(double x) {
+        return 0.8 * x * x + 0.1 * x + 0.1;
     }
-    static int znak(double value){
+
+    static int znak(double value) {
         if (value >= 0) return 1;
-        else  return -1;
+        else return -1;
     }
 }

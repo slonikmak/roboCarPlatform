@@ -109,7 +109,7 @@ public class Car {
     }
 
     public void followHeading(double destHeading, int speed, float kp, float ki, float kd){
-        System.out.println("-------Follow Heading "+destHeading+" speed "+speed+"--------");
+        System.out.println("--------Follow Heading "+destHeading+" speed "+speed+"--------");
         running = true;
         PID pid = new PID(kp, ki, kd);
         new Thread(()->{

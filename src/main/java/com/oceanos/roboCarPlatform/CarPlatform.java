@@ -28,6 +28,7 @@ public class CarPlatform {
     static final String cameraPort = "/dev/video0";
 
     static SimpleSerialConnection thrusterSerialConnection;
+    static UDPServer compassUdpServer;
 
     static long startTime;
     static Car car;
@@ -93,13 +94,13 @@ public class CarPlatform {
 
     static void startCompassServer() throws SocketException, UnknownHostException {
         SimpleSerialConnection connection = new SimpleSerialConnection(compassPort, 115200);
-        UDPServer compassUdpServer = new UDPServer(4447);
+        compassUdpServer = new UDPServer(4447);
         RionCompass compass = new RionCompass(connection);
         try {
             compass.setOnRecive(data -> {
                 CompassData compassData = (CompassData) data;
                 //System.out.println("from compass"+compassData.getHeading()+" "+compassData.getPitch()+" "+compassData.getRoll());
-                compassUdpServer.sendData(String.valueOf(compassData.getHeading()).getBytes());
+                compassUdpServer.sendData(("compass,"+ compassData.getHeading()).getBytes());
                 car.setHeading(compassData.getHeading());
             });
         } catch (MethodNotSupportedException e) {
@@ -144,6 +145,8 @@ public class CarPlatform {
             try {
                 msg1 += '\n';
                 thrusterSerialConnection.sendData(msg1.getBytes());
+                compassUdpServer.sendData(("thruster,"+c.getLeft()+","+c.getRight()).getBytes());
+
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -157,6 +160,11 @@ public class CarPlatform {
             //double targetHeading = Double.parseDouble(msg);
             String[] values = msg.split(",");
             car.goToHeading(Double.parseDouble(values[0]), Float.parseFloat(values[1]), Float.parseFloat(values[2]), Float.parseFloat(values[3]));
+        });
+
+        messageProcessor.addConsumer("followHeading", msg->{
+            String[] values = msg.split(",");
+            car.followHeading(Double.parseDouble(values[0]), (int) Double.parseDouble(values[4]), Float.parseFloat(values[1]), Float.parseFloat(values[2]), Float.parseFloat(values[3]));
         });
 
         messageProcessor.addConsumer("thruster", msg->{

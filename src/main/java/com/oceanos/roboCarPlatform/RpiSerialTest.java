@@ -7,7 +7,7 @@ import com.oceanos.ros.core.connections.SimpleSerialConnection;
  */
 public class RpiSerialTest {
     public static void main(String[] args) {
-        SimpleSerialConnection connection = new SimpleSerialConnection("/dev/ttyUSB0", 115200);
+        SimpleSerialConnection connection = new SimpleSerialConnection("/dev/ttyUSB1", 115200);
         connection.setOnRecived(b-> System.out.println(new String(b)));
         connection.start();
     }

@@ -1,59 +1,42 @@
 package com.oceanos.roboCarPlatform;
 
 /**
- * @autor slonikmak on 10.12.2018.
+ * @autor slonikmak on 12.12.2018.
  */
 public class PID {
-    /**
-     * Интервал расчетов.
-     */
-    double DT;
+    private double Kp;
+    private double Ki;
+    private double Kd;
+    private double errorOld = 0;
+    private double errorOld2 = 0;
+    private double resultOld = 0;
+    private double lastI = 0;
 
-    double Kp = 2, Ki = 1, Kd = 0;
-    double lastError;
-
-    double value;
-
-    public PID(double value, long DT, double Kp, double Ki, double Kd) {
-        this.DT = (float) DT / 1000;
-        this.Kp = Kp;
-        this.Ki = Ki;
-        this.Kd = Kd;
-        this.value = value;
-    }
-
-    public void setValue(double value) {
-
-        this.value = value;
-    }
-    public double getValue(){
-        return value;
-    }
-
-    public void setCoefficients(double Kp, double Ki, double Kd) {
+    public PID(double Kp, double Ki, double Kd){
         this.Kp = Kp;
         this.Ki = Ki;
         this.Kd = Kd;
     }
 
-    double P = 0;
-    double D = 0;
-    double I = 0;
-    double correction;
+    public double calc(float headingDiff){
+        double errorFunc = headingDiff;
+        //System.out.println(headingDiff+ " error_func "+errorFunc);
+        double result = resultOld + Kp*(errorFunc - errorOld) + Ki*(errorFunc + errorOld)/2 + Kd*(errorFunc-2*errorOld+errorOld2);
+        double result2 = headingDiff*Kp;
+        //System.out.println("result2 "+result2);
 
-    public double update(double inputValue) {
+        /*double p = Kp*errorFunc;
+        double i = lastI+Ki*errorFunc;
+        double d = Kd*(errorFunc-errorOld);
 
-        P = 0;
-        D = 0;
-        I = 0;
+        double result = p+i+d;*/
 
-        P = (value - inputValue);
-        I = (I + (value - inputValue) * DT);
-        D = (((value - inputValue) - lastError) / DT);
-        lastError = value - inputValue;
-        correction = (((Kp * P) + (Ki * I) + (Kd * D)) * DT);
+        if (result>1) result = 1;
+        if (result<0) result = 0;
 
-        return correction;
-
+        resultOld = result;
+        errorOld2 = errorOld;
+        errorOld = errorFunc;
+        return result;
     }
 }

@@ -1,10 +1,6 @@
 package com.oceanos.roboCarPlatform;
 
-import java.awt.dnd.DropTarget;
 import java.nio.file.Paths;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.function.Consumer;
 
 /**
@@ -75,24 +71,27 @@ public class Car {
     public void goToHeading(double destHeading, float kp, float ki, float kd){
         System.out.println("-------Going To Heading "+destHeading+", Kp"+kp+", ki"+ki+", kd"+kd+"--------");
         running = true;
-        TestPid pid = new TestPid(kp, ki, kd);
+        PID pid = new PID(kp, ki, kd);
         new Thread(()->{
             PidLogManager logManager = new PidLogManager();
            while (running){
-               double diffHeading = destHeading-heading;
+               double diffHeading = getDeviation(heading, destHeading);
+
+               System.out.println("heading: "+heading);
 
                logManager.addData(diffHeading);
                //if (diffHeading <5 && diffHeading >-5) stop();
 
-               float result = pid.calc((float) Math.abs(diffHeading));
+               double result = pid.calc((float) Math.abs(diffHeading/180f));
 
-               int resultValue = (int) (result*10)+50;
+               int resultValue = (int) (result*100);
                if (resultValue>100) resultValue = 100;
 
                if (diffHeading>5) {
                    setThruster((int) resultValue, 0, 0);
                } else if (diffHeading<-5) {
                    setThruster(0, resultValue, 0);
+                   //setThruster((int) resultValue, 0, 1);
                } else {
                    setThruster(0, 0, 0);
                }
@@ -112,20 +111,22 @@ public class Car {
     public void followHeading(double destHeading, int speed, float kp, float ki, float kd){
         System.out.println("-------Follow Heading "+destHeading+" speed "+speed+"--------");
         running = true;
-        TestPid pid = new TestPid(kp, ki, kd);
+        PID pid = new PID(kp, ki, kd);
         new Thread(()->{
             while (running){
                 double diffHeading = destHeading-heading;
 
                 //if (diffHeading <5 && diffHeading >-5) stop();
 
-                float result = pid.calc((float) Math.abs(diffHeading));
-                System.out.println("PID TEST: diff: "+diffHeading+" left: "+left+" right: "+right);
+                double result = pid.calc((float) Math.abs(diffHeading));
 
-                float resultValue = (1 - result)*speed;
+
+                double resultValue = (1 - result)*speed;
                 //if (resultValue>100) resultValue = 100;
 
-                if (diffHeading>2) {
+                System.out.println("PID TEST: diff: "+diffHeading+" left: "+left+" right: "+right+" result: "+resultValue);
+
+                if (diffHeading>5) {
                     setThruster(speed, (int) resultValue, 0);
                 } else if (diffHeading<-5) {
                     setThruster((int) resultValue, speed, 0);
@@ -137,5 +138,19 @@ public class Car {
                 }
             }
         }).start();
+    }
+
+    public double getDeviation(double heading, double destHeading){
+        double deviation = destHeading - heading;
+        if (deviation > 180) {
+            deviation -= 180;
+            deviation = (180 - deviation) * -1;
+        }
+        if (deviation < -180) {
+            deviation += 360;
+        }
+        // Инвертируем
+        //deviation *= -1;
+        return deviation;
     }
 }

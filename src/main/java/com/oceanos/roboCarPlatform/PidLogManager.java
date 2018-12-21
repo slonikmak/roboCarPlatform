@@ -7,12 +7,13 @@ import java.nio.file.Path;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.TreeMap;
 
 /**
  * @autor slonikmak on 13.12.2018.
  */
 public class PidLogManager {
-    private Map<Long, Double> dataMap = new HashMap<>();
+    private Map<Long, Double> dataMap = new TreeMap<>();
     private Long startTime;
 
     public PidLogManager(){

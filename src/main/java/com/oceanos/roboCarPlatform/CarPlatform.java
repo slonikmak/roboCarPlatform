@@ -71,7 +71,7 @@ public class CarPlatform {
         car = new Car();
         messageProcessor = new MessageProcessor();
         try {
-            startCameraServer();
+            //startCameraServer();
             startCompassServer();
             startThrusterServer();
         } catch (SocketException | UnknownHostException e) {
@@ -100,7 +100,7 @@ public class CarPlatform {
             compass.setOnRecive(data -> {
                 CompassData compassData = (CompassData) data;
                 //System.out.println("from compass"+compassData.getHeading()+" "+compassData.getPitch()+" "+compassData.getRoll());
-                compassUdpServer.sendData(("compass,"+ compassData.getHeading()).getBytes());
+                compassUdpServer.sendData(("compass,"+ Math.round(compassData.getHeading())+","+car.getwSpeed()).getBytes());
                 car.setHeading(compassData.getHeading());
             });
         } catch (MethodNotSupportedException e) {
@@ -168,8 +168,16 @@ public class CarPlatform {
         });
 
         messageProcessor.addConsumer("thruster", msg->{
+
             long currTime = new Date().getTime() - startTime;
             String[] dataArr = msg.split(",");
+            try {
+                double lx = Double.parseDouble(dataArr[0]);
+                double ty = Double.parseDouble(dataArr[1]);
+            } catch (NumberFormatException e){
+                System.out.println("thruster recived "+msg);
+                return;
+            }
             double lx = Double.parseDouble(dataArr[0]);
             double ty = Double.parseDouble(dataArr[1]);
             if (ty != 0.) {

@@ -5,27 +5,31 @@ import com.oceanos.roboCarPlatform.MiniPID;
  */
 public class TestMiniPID {
     public static void main(String[] args) {
-        /*MiniPID pid = new MiniPID(0.01, 0.0001,0.01);
-        pid.setOutputLimits(-1,0);
+       /* MiniPID pid = new MiniPID(0.5, 0,0, 0.55);
+        pid.setOutputLimits(-100,100);
+        pid.setDirection(true);
 
-        for (int i = 0; i < 10; i++) {
-            double diff = 50;
-            System.out.println(diff+" "+pid.getOutput(diff));
+        double actual = 50;
+        double target = 100;
+
+        for (int i = 0; i < 50; i++) {
+            actual = ++actual;
+            System.out.println(actual+" "+pid.getOutput(actual, target));
         }
 
-        for (int i = 180; i >= 0; i -= 5) {
+        for (int i = 180; i >= 0; i -= 10) {
             //double diff = i/90.0;
             //if (diff>1) diff = 1;
             double diff = i;
             long time = System.currentTimeMillis();
-            System.out.println(diff+" "+pid.getOutput(diff));
+            System.out.println(diff+" "+pid.getOutput(diff, 0));
             //System.out.println("Time "+(System.currentTimeMillis()-time));
             //System.out.println(pid.getOutput(50));
         }*/
-        MiniPID miniPID;
+       MiniPID miniPID;
 
-        miniPID = new MiniPID(0.25, 0.01, 0.4);
-        miniPID.setOutputLimits(10);
+        miniPID = new MiniPID(0.025, 0.01, 0.4);
+        miniPID.setOutputLimits(1);
         //miniPID.setMaxIOutput(2);
         //miniPID.setOutputRampRate(3);
         //miniPID.setOutputFilter(.3);
@@ -47,8 +51,8 @@ public class TestMiniPID {
 
             //if(i==50)miniPID.setI(.05);
 
-            if (i == 60)
-                target = 50;
+           /* if (i == 60)
+                target = 50;*/
 
             //if(i==75)target=(100);
             //if(i>50 && i%4==0)target=target+(Math.random()-.5)*50;

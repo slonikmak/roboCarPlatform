@@ -21,10 +21,12 @@ public class Car {
     private boolean running = true;
     private long startTime;
     private long headingDurationTime;
+    private LowPassFilter filter;
 
     private UDPServer server;
 
     public Car(){
+        filter = new LowPassFilter(0.2);
         startTime = System.currentTimeMillis();
         headingDurationTime = System.currentTimeMillis();
         try {
@@ -56,6 +58,7 @@ public class Car {
 
     public void setHeading(double heading){
         heading = Math.round(heading);
+        heading = (int)filter.calc(heading);
         int deltaHeading = (int) Math.round(getDeviation(this.heading, heading));
         //System.out.println("DELTA HEADING: "+deltaHeading);
         long currTime = System.currentTimeMillis();
@@ -86,7 +89,7 @@ public class Car {
         running = true;
         for (int i = 0; i < 1600; i++) {
             if (running){
-                setThruster(0,70,1);
+                setThruster(0,40,1);
                 Thread.sleep(20);
                 setThruster(0,0,1);
                 Thread.sleep(20);
@@ -94,6 +97,7 @@ public class Car {
                 break;
             }
         }
+        System.out.println("CAR CALIBRATION IS STOPED!");
     }
 
     public void stop(){
@@ -104,7 +108,7 @@ public class Car {
     public void goToHeading(double destHeading, float kp, float ki, float kd){
         System.out.println("-------Going To Heading "+destHeading+", Kp"+kp+", ki"+ki+", kd"+kd+"--------");
         running = true;
-        PID pid = new PID(kp, ki, kd);
+        MiniPID pid = new MiniPID(kp, ki, kd);
         new Thread(()->{
             PidLogManager logManager = new PidLogManager(server);
            while (running){
@@ -115,9 +119,10 @@ public class Car {
 
                //if (diffHeading <5 && diffHeading >-5) stop();
 
-               double result = pid.getOutput(Math.abs(diffHeading));
+               double pidResult = Math.abs(pid.getOutput(Math.abs(diffHeading)*-1));
+               double result = 100*(1-pidResult);
 
-               int resultValue = (int) result*100;
+               int resultValue = (int) result;
                if (resultValue>100) resultValue = 100;
                if (resultValue<0) resultValue = 0;
 
@@ -149,20 +154,22 @@ public class Car {
         System.out.println("--------Follow Heading "+destHeading+" speed "+speed+"--------");
         running = true;
         //PID pid = new PID(kp, ki, kd);
-        MiniPID pid = new MiniPID(kp,ki,kd);
+        //MiniPID pid = new MiniPID(kp,ki,kd);
+        PID2 pid = new PID2(kp, ki, kd);
         int minSpeed = 10;
         new Thread(()->{
             PidLogManager logManager = new PidLogManager(server);
 
             while (running){
-                long time = System.currentTimeMillis();
+                //////////////// MINI PID /////////////////////////
+                /*long time = System.currentTimeMillis();
                 double diffHeading = getDeviation(heading, destHeading);
 
                 //if (diffHeading <5 && diffHeading >-5) stop();
                 double error = Math.abs(diffHeading);
-                /*if (diffHeading >90) error = 1;
-                else error = (Math.abs(diffHeading)/90);*/
-                double pidResult = Math.abs(pid.getOutput(error));
+                *//*if (diffHeading >90) error = 1;
+                else error = (Math.abs(diffHeading)/90);*//*
+                double pidResult = Math.abs(pid.getOutput(Math.abs(error)*-1));
                 double result = 100*(1-pidResult);
 
                 System.out.println("PIDRESULT: "+pidResult);
@@ -192,7 +199,36 @@ public class Car {
                     Thread.sleep(sleepTime);
                 } catch (InterruptedException e) {
                     e.printStackTrace();
+                }*/
+
+                ////////////////////// PID2 /////////////////
+                long time = System.currentTimeMillis();
+                double error = getDeviation(heading, destHeading);
+                double pidOut = pid.getOutput(error);
+                double znak = pidOut/Math.abs(pidOut);
+                pidOut = Math.abs(pidOut);
+                if (pidOut>speed) pidOut = speed;
+                if (pidOut<minSpeed) pidOut = minSpeed;
+                if (error>10 || error <10) {
+                    if (znak>0){
+                        setThruster(speed, (int) (speed-pidOut), 0);
+                        logManager.addData(error, pidOut*znak, (double) wSpeed);
+                    } else {
+                        setThruster((int) (speed-pidOut), speed, 0);
+                        logManager.addData(error, pidOut*znak, (double) wSpeed);
+                    }
+                } else {
+                    setThruster(speed,speed,0);
+                    logManager.addData(error, 0d, (double) wSpeed);
                 }
+
+                long sleepTime = 20-(System.currentTimeMillis()-time);
+                try {
+                    Thread.sleep(sleepTime);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+
             }
         }).start();
     }

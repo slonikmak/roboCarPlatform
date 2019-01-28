@@ -36,8 +36,6 @@ public class Car {
             }).start();
         } catch (SocketException e) {
             e.printStackTrace();
-        } catch (UnknownHostException e) {
-            e.printStackTrace();
         }
     }
 
@@ -51,7 +49,7 @@ public class Car {
         this.right = right;
         this.direction = dir;
 
-        System.out.println("Set thruster "+left+" "+right+" "+dir);
+        //System.out.println("Set thruster "+left+" "+right+" "+dir);
 
         this.consumer.accept(this);
     }

@@ -5,58 +5,36 @@ import com.oceanos.ros.core.connections.SimpleSerialConnection;
 import com.oceanos.ros.core.connections.UDPServer;
 import com.oceanos.ros.core.devices.RionCompass;
 import com.oceanos.ros.core.devices.SimpleWebCamera;
+import com.oceanos.ros.core.devices.ThrusterController;
 import com.oceanos.ros.core.devices.rionCompass.CompassData;
-import com.oceanos.ros.messages.MessageProcessor;
+import com.oceanos.ros.messages.MessageServer;
 import com.oceanos.ros.messages.compass.CompassMessages;
-import org.apache.http.MethodNotSupportedException;
 
-import java.io.IOException;
 import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 
 /**
  * @autor slonikmak on 26.11.2018.
  */
 public class CarPlatform {
 
-    static final String arduinoPort = "/dev/ttyUSB0";
-    static final String compassPort = "/dev/Compass";
+    static final String arduinoPort = "/dev/ttyUSB1";
+    static final String compassPort = "/dev/ttyUSB0";
     static final String cameraPort = "/dev/video0";
 
-    static SimpleSerialConnection thrusterSerialConnection;
+    //static SimpleSerialConnection thrusterSerialConnection;
+    static ThrusterController thrusterController;
     static UDPServer compassUdpServer;
 
     static long startTime;
     static Car car;
-    static MessageProcessor messageProcessor;
-
-    static Map<Long, List<String>> messages = new HashMap<>();
-
-    static void addToList(String msg, long time) {
-        List<String> messageList = messages.get(time);
-        if (messageList == null) {
-            messageList = new ArrayList<>();
-            messages.put(time, messageList);
-        }
-        messageList.add(msg);
-        if (messageList.size() == 3) {
-            System.out.println("-----START MESSAGE------" + time);
-            for (String str :
-                    messageList) {
-                System.out.println(str);
-            }
-            System.out.println("-----END MESSAGE------" + time);
-            messages.remove(time);
-            //System.out.println("Messages size: "+messages.size() );
-        }
-    }
+    static MessageServer messageServer;
 
     public static void main(String[] args) {
         car = new Car();
-        messageProcessor = new MessageProcessor();
         try {
+            messageServer = new MessageServer(4447);
             startCameraServer();
             startCompassServer();
             startThrusterServer();
@@ -67,7 +45,6 @@ public class CarPlatform {
 
     static void startCameraServer() throws SocketException, UnknownHostException {
         SimpleWebCamera webCamera = new SimpleWebCamera(cameraPort, new V4l4jDriver());
-        //webCamera.setWebcamDriver();
         UDPServer cameraUdpServer = new UDPServer(4446);
         new Thread(() -> {
             cameraUdpServer.start();
@@ -82,21 +59,16 @@ public class CarPlatform {
 
     static void startCompassServer() throws SocketException, UnknownHostException {
         SimpleSerialConnection connection = new SimpleSerialConnection(compassPort, 115200);
-        compassUdpServer = new UDPServer(4447);
         RionCompass compass = new RionCompass(connection);
-        try {
-            compass.setOnRecive(data -> {
-                CompassData compassData = (CompassData) data;
-                //System.out.println("from compass"+compassData.getHeading()+" "+compassData.getPitch()+" "+compassData.getRoll());
-                car.setHeading(compassData.getHeading());
-                compassUdpServer.sendData(("compass,"+ car.getHeading()+","+car.getwSpeed()).getBytes());
+        compass.setOnRecived(data -> {
+            CompassData compassData = (CompassData) data;
+            System.out.println("from compass"+compassData.getHeading()+" "+compassData.getPitch()+" "+compassData.getRoll());
+            car.setHeading(compassData.getHeading());
+            //compassUdpServer.sendData(("compass,"+ car.getHeading()+","+car.getwSpeed()).getBytes());
+            messageServer.sendMessage("compass", String.valueOf(car.getHeading()), String.valueOf(car.getwSpeed()));
+        });
 
-            });
-        } catch (MethodNotSupportedException e) {
-            e.printStackTrace();
-        }
-
-        messageProcessor.addConsumer(CompassMessages.START_CALIBRATION.getName(), (s)->{
+        messageServer.addConsumer(CompassMessages.START_CALIBRATION.getName(), (s)->{
             new Thread(()->{
                 compass.startCalibration();
                 try {
@@ -109,12 +81,13 @@ public class CarPlatform {
             }).start();
         });
 
-        messageProcessor.addConsumer(CompassMessages.START_HEADING_STREAM.getName(),(s)->{
+        messageServer.addConsumer(CompassMessages.START_HEADING_STREAM.getName(),(s)->{
+            System.out.println("START HEADING STREAM!!!!!!!!!");
             compass.startStreamHeading();
         });
 
         compass.start();
-        new Thread(compassUdpServer::start).start();
+        //new Thread(compassUdpServer::start).start();
 
 
     }
@@ -122,41 +95,42 @@ public class CarPlatform {
     static void startThrusterServer() {
         startTime = new Date().getTime();
 
-        thrusterSerialConnection = new SimpleSerialConnection(arduinoPort, 115200);
+        //thrusterSerialConnection = new SimpleSerialConnection(arduinoPort, 115200);
+        thrusterController = new ThrusterController(arduinoPort, 115200);
 
         car.setConsumer(c->{
             Long currTime = new Date().getTime() - startTime;
             String msg1 = "0,0,0," + currTime + ";";
             if (c.getLeft() > 0 || c.getRight()>0) {
                 msg1 = c.getLeft() + "," + c.getRight() + "," + c.getDirection() + "," + currTime + ";";
+                thrusterController.sendData(c.getLeft(), c.getRight(), c.getDirection(), currTime);
+            } else {
+                thrusterController.sendData(0, 0, 0, currTime);
             }
             System.out.println("To arduino: " + msg1);
-            try {
-                msg1 += '\n';
-                thrusterSerialConnection.sendData(msg1.getBytes());
-                compassUdpServer.sendData(("thruster,"+c.getLeft()+","+c.getRight()).getBytes());
-
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+            //msg1 += '\n';
+            //thrusterSerialConnection.sendData(msg1.getBytes());
+            //thrusterController.sendData(c.getLeft(), c.getRight(), c.getDirection(), currTime);
+            //compassUdpServer.sendData(("thruster,"+c.getLeft()+","+c.getRight()).getBytes());
+            messageServer.sendMessage("thruster_callback", String.valueOf(c.getLeft()), String.valueOf(c.getRight()));
         });
 
-        messageProcessor.addConsumer("stop", msg->{
+        messageServer.addConsumer("stop", msg->{
             car.stop();
         });
 
-        messageProcessor.addConsumer("goToHeading", msg ->{
+        messageServer.addConsumer("goToHeading", msg ->{
             //double targetHeading = Double.parseDouble(msg);
             String[] values = msg.split(",");
             car.goToHeading(Double.parseDouble(values[0]), Float.parseFloat(values[1]), Float.parseFloat(values[2]), Float.parseFloat(values[3]));
         });
 
-        messageProcessor.addConsumer("followHeading", msg->{
+        messageServer.addConsumer("followHeading", msg->{
             String[] values = msg.split(",");
             car.followHeading(Double.parseDouble(values[0]), (int) Double.parseDouble(values[4]), Float.parseFloat(values[1]), Float.parseFloat(values[2]), Float.parseFloat(values[3]));
         });
 
-        messageProcessor.addConsumer("thruster", msg->{
+        messageServer.addConsumer("thruster", msg->{
 
             long currTime = new Date().getTime() - startTime;
             String[] dataArr = msg.split(",");
@@ -173,7 +147,7 @@ public class CarPlatform {
                 //lx = znak(lx)*convert(lx);
                 ty = znak(ty) * convert(ty);
             }*/
-            System.out.println("lx " + lx + " ty " + ty + "," + currTime);
+            //System.out.println("lx " + lx + " ty " + ty + "," + currTime);
             //processMessage("lx " + lx + ", ty " + ty+","+currTime);
             int left = 0;
             int right = 0;
@@ -199,32 +173,32 @@ public class CarPlatform {
             /**/
         });
 
-        UDPServer thrusterServer = null;
-        try {
+        //UDPServer thrusterServer = null;
+        /*try {
             thrusterServer = new UDPServer(4448);
         } catch (SocketException e) {
             e.printStackTrace();
-        } catch (UnknownHostException e) {
-            e.printStackTrace();
-        }
+        }*/
 
-        thrusterSerialConnection.setOnRecived(b -> {
+        thrusterController.setOnRecived(b -> {
             String msg = new String(b).replace("\n", "");
             System.out.println("from arduino: " + msg);
 
         });
 
-        thrusterServer.setOnRecived(d -> {
-            String data = new String(d);
-            messageProcessor.processMessage(data);
-        });
+        thrusterController.start();
 
+        /*thrusterServer.setOnRecived(d -> {
+            String data = new String(d);
+            messageServer.processMessage(data);
+        });*/
+/*
         UDPServer finalThrusterServer = thrusterServer;
         new Thread(() -> {
             finalThrusterServer.start();
-        }).start();
+        }).start();*/
 
-        new Thread(() -> thrusterSerialConnection.start()).start();
+        //new Thread(() -> thrusterSerialConnection.start()).start();
     }
 
     static double convert(double x) {
